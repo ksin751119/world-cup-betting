@@ -4,6 +4,8 @@ import { deployments, network } from 'hardhat';
 import { USDC_TOKEN } from './utils/constants';
 import { mwei, latest, ether, tokenProviderQuick } from './utils/utils';
 
+const base = ether('1');
+
 describe('BetWorldCup', function () {
   let owner: Wallet;
   let user: Wallet;
@@ -21,7 +23,6 @@ describe('BetWorldCup', function () {
     [owner, user, other] = await (ethers as any).getSigners();
 
     bettingToken = await ethers.getContractAt('IERC20', USDC_TOKEN);
-
     const now = await latest();
     period = BigNumber.from(300); // 1 min
     betWorldCup = await (
@@ -30,8 +31,10 @@ describe('BetWorldCup', function () {
     await betWorldCup.deployed();
 
     const provider = await tokenProviderQuick(bettingToken.address);
+    await bettingToken.connect(provider).transfer(owner.address, mwei('1000'));
     await bettingToken.connect(provider).transfer(user.address, mwei('1000'));
     await bettingToken.connect(provider).transfer(other.address, mwei('1000'));
+    await bettingToken.connect(owner).approve(betWorldCup.address, constants.MaxUint256);
     await bettingToken.connect(user).approve(betWorldCup.address, constants.MaxUint256);
     await bettingToken.connect(other).approve(betWorldCup.address, constants.MaxUint256);
 
@@ -51,50 +54,74 @@ describe('BetWorldCup', function () {
   describe('normal', function () {
     describe('bet', function () {
       it('betRed', async function () {
+        await betWorldCup.initialize();
         const betAmount = mwei('100');
         const bettingTokenBefore = await bettingToken.balanceOf(user.address);
+        const redShareTotalSupplyBefore = await redShareToken.totalSupply();
+        const blueShareTotalSupplyBefore = await blueShareToken.totalSupply();
+        const bettingBetWorldCupTokenBefore = await bettingToken.balanceOf(betWorldCup.address);
         expect(await redShareToken.balanceOf(user.address)).to.be.eq(0);
+        const expectRedOdds = bettingBetWorldCupTokenBefore
+          .add(betAmount)
+          .mul(base)
+          .div(redShareTotalSupplyBefore.add(betAmount));
+        const expectBlueOdds = bettingBetWorldCupTokenBefore.add(betAmount).mul(base).div(blueShareTotalSupplyBefore);
 
+        // execute bet
         const receipt = await betWorldCup.connect(user).betRed(betAmount);
+
+        // verify
         await expect(receipt).to.emit(betWorldCup, 'Bet').withArgs('RED', user.address, betAmount);
         expect(await redShareToken.balanceOf(user.address)).to.be.eq(betAmount);
         expect(await bettingToken.balanceOf(user.address)).to.be.eq(bettingTokenBefore.sub(betAmount));
-        expect(await betWorldCup.redOdds()).to.be.eq(ether('1'));
-        expect(await betWorldCup.blueOdds()).to.be.eq(constants.MaxUint256);
-        expect(await betWorldCup.blueBetting()).to.be.eq(0);
-        expect(await betWorldCup.redBetting()).to.be.eq(betAmount);
+        expect(await betWorldCup.redOdds()).to.be.eq(expectRedOdds);
+        expect(await betWorldCup.blueOdds()).to.be.eq(expectBlueOdds);
+        expect(await betWorldCup.blueBetting()).to.be.eq(blueShareTotalSupplyBefore);
+        expect(await betWorldCup.redBetting()).to.be.eq(betAmount.add(redShareTotalSupplyBefore));
       });
 
       it('betBlue', async function () {
+        await betWorldCup.initialize();
         const betAmount = mwei('100');
         const bettingTokenBefore = await bettingToken.balanceOf(user.address);
+        const redShareTotalSupplyBefore = await redShareToken.totalSupply();
+        const blueShareTotalSupplyBefore = await blueShareToken.totalSupply();
+        const bettingBetWorldCupTokenBefore = await bettingToken.balanceOf(betWorldCup.address);
         expect(await blueShareToken.balanceOf(user.address)).to.be.eq(0);
+
+        const expectBlueOdds = bettingBetWorldCupTokenBefore
+          .add(betAmount)
+          .mul(base)
+          .div(blueShareTotalSupplyBefore.add(betAmount));
+        const expectRedOdds = bettingBetWorldCupTokenBefore.add(betAmount).mul(base).div(blueShareTotalSupplyBefore);
 
         const receipt = await betWorldCup.connect(user).betBlue(betAmount);
         await expect(receipt).to.emit(betWorldCup, 'Bet').withArgs('BLUE', user.address, betAmount);
         expect(await blueShareToken.balanceOf(user.address)).to.be.eq(betAmount);
         expect(await bettingToken.balanceOf(user.address)).to.be.eq(bettingTokenBefore.sub(betAmount));
-        expect(await betWorldCup.blueOdds()).to.be.eq(ether('1'));
-        expect(await betWorldCup.redOdds()).to.be.eq(constants.MaxUint256);
-        expect(await betWorldCup.redBetting()).to.be.eq(0);
-        expect(await betWorldCup.blueBetting()).to.be.eq(betAmount);
+        expect(await betWorldCup.redOdds()).to.be.eq(expectRedOdds);
+        expect(await betWorldCup.blueOdds()).to.be.eq(expectBlueOdds);
+        expect(await betWorldCup.redBetting()).to.be.eq(redShareTotalSupplyBefore);
+        expect(await betWorldCup.blueBetting()).to.be.eq(blueShareTotalSupplyBefore.add(betAmount));
       });
 
       it('both bet', async function () {
+        await betWorldCup.initialize();
+        const redShareTotalSupplyBefore = await redShareToken.totalSupply();
+        const blueShareTotalSupplyBefore = await blueShareToken.totalSupply();
+
         const betBlueAmount = mwei('100');
         await betWorldCup.connect(user).betBlue(betBlueAmount);
 
         const betRedAmount = betBlueAmount.div(2);
         await betWorldCup.connect(user).betRed(betRedAmount);
 
-        expect(await betWorldCup.blueOdds()).to.be.eq(ether('1.5'));
-        expect(await betWorldCup.redOdds()).to.be.eq(ether('3'));
-        expect(await betWorldCup.blueBetting()).to.be.eq(betBlueAmount);
-        expect(await betWorldCup.redBetting()).to.be.eq(betRedAmount);
+        expect(await betWorldCup.blueBetting()).to.be.eq(betBlueAmount.add(blueShareTotalSupplyBefore));
+        expect(await betWorldCup.redBetting()).to.be.eq(betRedAmount.add(redShareTotalSupplyBefore));
       });
 
       it('should revert: Exceeded betting time', async function () {
-        // const stalePeriod = await chainlink.stalePeriod();
+        await betWorldCup.initialize();
         await network.provider.send('evm_increaseTime', [period.toNumber()]);
         await network.provider.send('evm_mine', []);
 
@@ -104,10 +131,22 @@ describe('BetWorldCup', function () {
         // Execution
         await expect(betWorldCup.connect(user).betBlue(betAmount)).to.be.revertedWith('Exceeded betting time');
       });
+
+      it('should revert: Not initialized', async function () {
+        await network.provider.send('evm_increaseTime', [period.toNumber()]);
+        await network.provider.send('evm_mine', []);
+
+        // Prepare action data
+        const betAmount = mwei('100');
+
+        // Execution
+        await expect(betWorldCup.connect(user).betBlue(betAmount)).to.be.revertedWith('Not initialized');
+      });
     });
 
     describe('submit', function () {
       beforeEach(async function () {
+        await betWorldCup.initialize();
         const blueBetAmount = mwei('10');
         const redBetAmount = blueBetAmount.div(BigNumber.from(2));
         await betWorldCup.connect(user).betBlue(blueBetAmount);
@@ -123,7 +162,7 @@ describe('BetWorldCup', function () {
 
         const winner = await betWorldCup.winner();
         expect(winner.name).to.be.eq(redPlayer.name);
-        expect(await betWorldCup.matchResultSubmitted()).to.be.true;
+        expect(await betWorldCup.resultSubmitted()).to.be.true;
         await expect(blueShareToken.connect(other).transfer(user.address, BigNumber.from(1))).to.be.revertedWith(
           'ERC20Pausable: token transfer while paused'
         );
@@ -139,7 +178,7 @@ describe('BetWorldCup', function () {
 
         const winner = await betWorldCup.winner();
         expect(winner.name).to.be.eq(bluePlayer.name);
-        expect(await betWorldCup.matchResultSubmitted()).to.be.true;
+        expect(await betWorldCup.resultSubmitted()).to.be.true;
         await expect(redShareToken.connect(other).transfer(user.address, BigNumber.from(1))).to.be.revertedWith(
           'ERC20Pausable: token transfer while paused'
         );
@@ -167,13 +206,12 @@ describe('BetWorldCup', function () {
     describe('claim', function () {
       let redBetAmount: BigNumber;
       let blueBetAmount: BigNumber;
-      let base: BigNumber;
 
       describe('1.x reward', function () {
         beforeEach(async function () {
+          await betWorldCup.initialize();
           blueBetAmount = mwei('10');
           redBetAmount = blueBetAmount.mul(BigNumber.from(2));
-          base = ether('1');
           await betWorldCup.connect(user).betBlue(blueBetAmount);
           await betWorldCup.connect(user).betRed(redBetAmount);
           await network.provider.send('evm_increaseTime', [period.toNumber() + 3 * 60 * 60]);
@@ -211,15 +249,19 @@ describe('BetWorldCup', function () {
       });
 
       describe('above 2.x reward', function () {
+        let betTokenTotalBalance: BigNumber;
+        let redShareTokenSupply: BigNumber;
         beforeEach(async function () {
+          await betWorldCup.initialize();
           blueBetAmount = mwei('10');
           redBetAmount = blueBetAmount.div(BigNumber.from(3));
-          base = ether('1');
           await betWorldCup.connect(user).betBlue(blueBetAmount);
           await betWorldCup.connect(user).betRed(redBetAmount);
           await network.provider.send('evm_increaseTime', [period.toNumber() + 3 * 60 * 60]);
           await network.provider.send('evm_mine', []);
           await betWorldCup.connect(owner).submitMatchResult(true);
+          betTokenTotalBalance = await bettingToken.balanceOf(betWorldCup.address);
+          redShareTokenSupply = await redShareToken.totalSupply();
         });
 
         it('claim part reward', async function () {
@@ -228,7 +270,7 @@ describe('BetWorldCup', function () {
           const totalShareBefore = await redShareToken.totalSupply();
 
           const partialReward = redBetAmount.div(BigNumber.from(3));
-          const expectReward = blueBetAmount.add(redBetAmount).mul(partialReward).mul(base).div(base.mul(redBetAmount));
+          const expectReward = betTokenTotalBalance.mul(partialReward).mul(base).div(base.mul(redShareTokenSupply));
           const receipt = await betWorldCup.connect(user).claimReward(partialReward);
           await expect(receipt).to.emit(betWorldCup, 'Claim').withArgs(user.address, partialReward, expectReward);
           expect(await bettingToken.balanceOf(user.address)).to.be.eq(userBetTokenBefore.add(expectReward));
@@ -241,8 +283,9 @@ describe('BetWorldCup', function () {
           const userBetTokenBefore = await bettingToken.balanceOf(user.address);
           const totalShareBefore = await redShareToken.totalSupply();
           const partialReward = redBetAmount;
-          const expectReward = blueBetAmount.add(redBetAmount).mul(partialReward).mul(base).div(base.mul(redBetAmount));
+          const expectReward = betTokenTotalBalance.mul(partialReward).mul(base).div(base.mul(redShareTokenSupply));
           const receipt = await betWorldCup.connect(user).claimReward(partialReward);
+
           await expect(receipt).to.emit(betWorldCup, 'Claim').withArgs(user.address, partialReward, expectReward);
           expect(await bettingToken.balanceOf(user.address)).to.be.eq(userBetTokenBefore.add(expectReward));
           expect(await redShareToken.totalSupply()).to.be.eq(totalShareBefore.sub(partialReward));
@@ -252,9 +295,9 @@ describe('BetWorldCup', function () {
 
       describe('should revert', function () {
         beforeEach(async function () {
+          await betWorldCup.initialize();
           blueBetAmount = mwei('10');
           redBetAmount = blueBetAmount;
-          base = ether('1');
           await betWorldCup.connect(user).betBlue(blueBetAmount);
           await betWorldCup.connect(user).betRed(redBetAmount);
           await network.provider.send('evm_increaseTime', [period.toNumber() + 3 * 60 * 60]);

@@ -5,22 +5,9 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {ERC20PresetMinterPauser} from "@openzeppelin/contracts/token/ERC20/presets/ERC20PresetMinterPauser.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {WCShareToken} from "./WCShareToken.sol";
 
-contract WCShareToken is Ownable, ERC20PresetMinterPauser {
-    uint8 private immutable _decimals;
-
-    constructor(
-        string memory name_,
-        string memory symbol_,
-        uint8 decimals_
-    ) ERC20PresetMinterPauser(name_, symbol_) {
-        _decimals = decimals_;
-    }
-
-    function decimals() public view override returns (uint8) {
-        return _decimals;
-    }
-}
+import "hardhat/console.sol";
 
 contract BetWorldCup is Ownable {
     using SafeERC20 for IERC20Metadata;
@@ -31,6 +18,7 @@ contract BetWorldCup is Ownable {
         WCShareToken shareToken;
     }
 
+    event Initial();
     event Bet(string player, address user, uint256 amount);
     event SubmitMatchResult(TeamPlayer player);
     event Claim(address user, uint256 amount, uint256 reward);
@@ -38,12 +26,19 @@ contract BetWorldCup is Ownable {
     uint256 constant base = 1e18;
     uint256 public immutable bettingEndTime;
     uint256 public immutable estimateMatchEndTime;
-    bool public matchResultSubmitted;
+    bool public initialized;
+    bool public resultSubmitted;
     IERC20Metadata public bettingToken;
     TeamPlayer public redPlayer;
     TeamPlayer public bluePlayer;
     TeamPlayer public winner;
 
+    modifier isInitialized() {
+        require(initialized, "Not initialized");
+        _;
+    }
+
+    // Constructor
     constructor(
         string memory redPlayer_,
         string memory bluePlayer_,
@@ -54,7 +49,7 @@ contract BetWorldCup is Ownable {
         bettingEndTime = bettingEndTime_;
         estimateMatchEndTime = bettingEndTime + 3 * 60 * 60; // 3 hours
 
-        // Setup Team information
+        // Setup team information
         redPlayer = TeamPlayer({
             name: redPlayer_,
             bettingOdds: 0,
@@ -86,18 +81,27 @@ contract BetWorldCup is Ownable {
     }
 
     // External Function
-    function betRed(uint256 betAmount_) external {
+
+    function initialize() external onlyOwner {
+        require(!initialized, "initialized");
+        initialized = true;
+        betRed(1);
+        betBlue(1);
+        emit Initial();
+    }
+
+    function betRed(uint256 betAmount_) public isInitialized {
         _bet(redPlayer.shareToken, betAmount_);
         emit Bet("RED", msg.sender, betAmount_);
     }
 
-    function betBlue(uint256 betAmount_) external {
+    function betBlue(uint256 betAmount_) public isInitialized {
         _bet(bluePlayer.shareToken, betAmount_);
         emit Bet("BLUE", msg.sender, betAmount_);
     }
 
-    function submitMatchResult(bool isRedWinner_) external onlyOwner {
-        require(!matchResultSubmitted, "Submitted");
+    function submitMatchResult(bool isRedWinner_) external onlyOwner isInitialized {
+        require(!resultSubmitted, "Submitted");
         require(block.timestamp > estimateMatchEndTime, "Match may not over yet");
 
         // set winner
@@ -108,12 +112,12 @@ contract BetWorldCup is Ownable {
             winner = bluePlayer;
             redPlayer.shareToken.pause();
         }
-        matchResultSubmitted = true;
+        resultSubmitted = true;
         emit SubmitMatchResult(winner);
     }
 
-    function claimReward(uint256 amount_) external returns (uint256) {
-        require(matchResultSubmitted, "Not submit match result yet");
+    function claimReward(uint256 amount_) external isInitialized returns (uint256) {
+        require(resultSubmitted, "Not submit match result yet");
         WCShareToken shareToken = winner.shareToken;
         shareToken.transferFrom(msg.sender, address(this), amount_);
 
@@ -139,7 +143,6 @@ contract BetWorldCup is Ownable {
     function _calOdds(WCShareToken shareToken_, uint256 amount_) internal view returns (uint256) {
         uint256 balance = bettingToken.balanceOf(address(this));
         uint256 totalShares = shareToken_.totalSupply();
-        if (totalShares == 0) return type(uint256).max;
         return (balance * base * amount_) / (totalShares);
     }
 }
