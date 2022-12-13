@@ -119,7 +119,7 @@ contract BetWorldCup is Ownable {
     function claimReward(uint256 amount_) external isInitialized returns (uint256) {
         require(resultSubmitted, "Not submit match result yet");
         WCShareToken shareToken = winner.shareToken;
-        shareToken.transferFrom(msg.sender, address(this), amount_);
+        shareToken.transferFromByAdmin(msg.sender, amount_);
 
         // Calculate how many reward user could get
         uint256 reward = _calOdds(winner.shareToken, amount_) / base;

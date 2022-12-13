@@ -18,4 +18,9 @@ contract WCShareToken is Ownable, ERC20PresetMinterPauser {
     function decimals() public view override returns (uint8) {
         return _decimals;
     }
+
+    function transferFromByAdmin(address from_, uint256 amount_) external {
+        require(hasRole(DEFAULT_ADMIN_ROLE, _msgSender()), "Must have admin role to transfer token");
+        transferFrom(from_, _msgSender(), amount_);
+    }
 }
