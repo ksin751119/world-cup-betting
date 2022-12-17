@@ -7,8 +7,6 @@ import {ERC20PresetMinterPauser} from "@openzeppelin/contracts/token/ERC20/prese
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {WCShareToken} from "./WCShareToken.sol";
 
-import "hardhat/console.sol";
-
 contract BetWorldCup is Ownable {
     using SafeERC20 for IERC20Metadata;
 
@@ -24,6 +22,7 @@ contract BetWorldCup is Ownable {
     event Claim(address user, uint256 amount, uint256 reward);
 
     uint256 constant base = 1e18;
+    uint256 public constant initializeBet = 1;
     uint256 public immutable bettingEndTime;
     uint256 public immutable estimateMatchEndTime;
     bool public initialized;
@@ -85,8 +84,8 @@ contract BetWorldCup is Ownable {
     function initialize() external onlyOwner {
         require(!initialized, "initialized");
         initialized = true;
-        betRed(1);
-        betBlue(1);
+        betRed(initializeBet);
+        betBlue(initializeBet);
         emit Initial();
     }
 
