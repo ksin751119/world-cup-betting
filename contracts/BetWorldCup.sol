@@ -12,7 +12,6 @@ contract BetWorldCup is Ownable {
 
     struct TeamPlayer {
         string name;
-        uint256 bettingOdds;
         WCShareToken shareToken;
     }
 
@@ -51,13 +50,11 @@ contract BetWorldCup is Ownable {
         // Setup team information
         redPlayer = TeamPlayer({
             name: redPlayer_,
-            bettingOdds: 0,
             shareToken: new WCShareToken("RED_SHARE", "RST", bettingToken.decimals())
         });
 
         bluePlayer = TeamPlayer({
             name: bluePlayer_,
-            bettingOdds: 0,
             shareToken: new WCShareToken("BLUE_SHARE", "BST", bettingToken.decimals())
         });
     }

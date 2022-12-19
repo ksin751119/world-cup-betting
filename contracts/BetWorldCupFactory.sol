@@ -32,8 +32,8 @@ contract BetWorldCupFactory {
 
         // Transfer ownership and share token to msg.sender
         bwc.transferOwnership(msg.sender);
-        (, , WCShareToken redShareToken) = bwc.redPlayer();
-        (, , WCShareToken blueShareToken) = bwc.bluePlayer();
+        (, WCShareToken redShareToken) = bwc.redPlayer();
+        (, WCShareToken blueShareToken) = bwc.bluePlayer();
         redShareToken.transfer(msg.sender, redShareToken.balanceOf(address(this)));
         blueShareToken.transfer(msg.sender, blueShareToken.balanceOf(address(this)));
 
